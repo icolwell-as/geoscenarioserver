@@ -14,12 +14,24 @@ class GSClient(Node):
         timer_period = 0.033333  # seconds
         self.timer = self.create_timer(timer_period, self.timer_callback)
         self.sim_client_shm = SimSharedMemoryClient()
+        self.previous_tick_count = 0
 
 
     def timer_callback(self):
         header, vehicles, pedestrians = self.sim_client_shm.read_server_state()
 
-        # TODO: Check if we skipped a tick, etc.
+        if header is None:
+            self.get_logger().warn('Waiting for geoscenario server', throttle_duration_sec=2)
+            return
+
+        tick_count = header[0]
+
+        # TODO: Consider a better way to keep the client synchronized with the server. Should be possible with semaphores
+        if tick_count > self.previous_tick_count + 1:
+            self.get_logger().error('Tick %d was skipped!' % (self.previous_tick_count + 1))
+        elif tick_count == self.previous_tick_count:
+            self.get_logger().warn('Same tick as last time, the same data will be published again')
+
 
         tick_msg = Tick()
         tick_msg.tick_count = header[0]
@@ -51,6 +63,7 @@ class GSClient(Node):
             tick_msg.pedestrians.append(msg)
 
         self.tick_pub.publish(tick_msg)
+        self.previous_tick_count = tick_count
 
 
 def main(args=None):
@@ -58,9 +71,13 @@ def main(args=None):
 
     gs_client = GSClient()
 
-    rclpy.spin(gs_client)
+    try:
+        rclpy.spin(gs_client)
+    except KeyboardInterrupt: # Exit (Ctrl-C)
+        gs_client.get_logger().info('Shutdown')
 
     gs_client.destroy_node()
+
     rclpy.shutdown()
 
 

@@ -1,6 +1,5 @@
 import sysv_ipc
 import time
-import glog as log
 
 SHM_KEY = 123456
 SEM_KEY = 346565
@@ -32,17 +31,24 @@ class SimSharedMemoryClient(object):
             # Initializing sem.o_time to nonzero value
             self.ss_sem.release()
 
-        log.info("ShM SS semaphore created")
+        print("ShM SS semaphore created")
 
+        if self.connect_to_shared_memory():
+            print("Connected to server state shared memory")
+        else:
+            print("Could not connect to server state shared memory")
+
+
+    def connect_to_shared_memory(self):
         # Shared memory initialization
         try:
             self.ss_shm = sysv_ipc.SharedMemory(self.ss_shm_key, mode=int(str(666), 8), size=SHM_SIZE)
-            log.info("ShM SS memory created")
-
             self.is_connected = True
         except sysv_ipc.Error:
-            log.error("Error creating Shared Memory")
             self.is_connected = False
+            return False
+
+        return True
 
 
     def read_server_state(self):
@@ -58,8 +64,9 @@ class SimSharedMemoryClient(object):
         pedestrians = []
 
         if not self.is_connected:
-            log.error("Not yet connected to shared memory")
-            return header, vehicles, pedestrians
+            # Not yet connected to shared memory, maybe the server isn't started yet
+            if not self.connect_to_shared_memory():
+                return header, vehicles, pedestrians
 
         # Read server shared memory
         try:
@@ -72,7 +79,7 @@ class SimSharedMemoryClient(object):
             self.is_connected = False
             return header, vehicles, pedestrians
         except sysv_ipc.BusyError:
-            log.error("Cannot acquire client state semaphore...")
+            print("Cannot acquire client state semaphore...")
             return header, vehicles, pedestrians
 
         # Parse server data
@@ -89,10 +96,9 @@ class SimSharedMemoryClient(object):
             num_vehicles = header[2]
             num_pedestrians = header[3]
         except Exception as e:
-            log.error("Header parsing exception")
-            log.error("data_arr[0]: %s ", data_arr[0])
-            log.error(e)
-            pass
+            print("Header parsing exception")
+            print("data_arr[0]: %s ", data_arr[0])
+            print(e)
 
         try:
             for ri in range(1, num_vehicles + 1):
@@ -110,9 +116,8 @@ class SimSharedMemoryClient(object):
                 vehicles.append(vehicle)
 
         except Exception as e:
-            log.error("VehicleState parsing exception")
-            log.error(e)
-            pass
+            print("VehicleState parsing exception")
+            print(e)
 
         try:
             for ri in range(num_vehicles + 1, num_vehicles + 1 + num_pedestrians):
@@ -128,14 +133,15 @@ class SimSharedMemoryClient(object):
                 pedestrians.append(pedestrian)
 
         except Exception as e:
-            log.error("PedestrianState parsing exception")
-            log.error(e)
-            pass
+            print("PedestrianState parsing exception")
+            print(e)
 
         return header, vehicles, pedestrians
 
 
     def __del__(self):
-        self.is_connected = False
-        # Only detach, leave it up to the server to remove shared memory
-        self.ss_shm.detach()
+        if self.is_connected:
+            # Only detach, leave it up to the server to remove shared memory
+            self.ss_shm.detach()
+            self.is_connected = False
+            print("Disconnected from server state shared memory")
