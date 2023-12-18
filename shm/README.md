@@ -17,4 +17,4 @@ pid p_type x y z vx vy yaw
 ...
 ```
 
-All data is in base SI units (m, m/s, s, radians).
+All data is in base SI units (m, m/s, s, radians), and position data is ENU with positive yaw indicating counter-clockwise from east. 
