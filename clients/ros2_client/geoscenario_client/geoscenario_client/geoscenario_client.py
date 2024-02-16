@@ -54,7 +54,7 @@ class GSClient(Node):
         for pedestrian in pedestrians:
             msg = Pedestrian()
             msg.id = pedestrian["id"]
-            msg.type = pedestrian["type"]
+            #msg.type = pedestrian["type"]
             msg.position.x = pedestrian["x"]
             msg.position.y = pedestrian["y"]
             msg.position.z = pedestrian["z"]

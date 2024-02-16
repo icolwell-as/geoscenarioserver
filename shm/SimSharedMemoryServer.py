@@ -61,9 +61,9 @@ class SimSharedMemoryServer(object):
 
         # write pedestrian states, rounding the numerical data to reasonable significant figures
         for spid in pedestrians:
-            pid, p_type, position, velocity, yaw = pedestrians[spid].get_sim_state()
-            write_str += "{} {} {} {} {} {} {} {}\n".format(
-                pid, p_type,
+            pid, _, position, velocity, yaw = pedestrians[spid].get_sim_state()
+            write_str += "{} {} {} {} {} {} {}\n".format(
+                pid,
                 round(position[0], 4),
                 round(position[1], 4),
                 round(position[2], 4),
@@ -176,6 +176,9 @@ class SimSharedMemoryServer(object):
                     ps.z = float(z)
                     ps.x_vel = float(x_vel)
                     ps.y_vel = float(y_vel)
+
+                    if (abs(ps.y_vel) > 0.01) or (abs(ps.x_vel) > 0.01):
+                        ps.yaw = math.degrees(math.atan2(ps.y_vel,ps.x_vel))
                     pstates[pid] = ps
                     if not int(is_active):
                         disabled_pedestrians.append(pid)
