@@ -15,6 +15,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter.font import Font
 import datetime
+from signal import signal, SIGTERM, SIGINT
 from PIL import Image, ImageTk
 import glog as log
 from SimTraffic import *
@@ -33,13 +34,19 @@ class Dashboard(object):
     FRE_FIG_ID = 3
     TRAJ_FIG_ID = 4
 
-    def __init__(self, sim_traffic:SimTraffic, sim_config:SimConfig):
+    maneuver_map = {"M_VELKEEP":"VelKeep", "M_FOLLOW":"Follow", "M_LANESWERVE":"LaneSwerve", "M_CUTIN":"CutIn", "M_STOP":"Stop", "M_REVERSE":"Reverse"}
+    vehicle_types = {0:"N", 1:"SDV", 2:"EV", 3:"TV", 4:"PV"}
+    ped_types = {0:"N", 1:"TP", 2:"PP", 3:"EP", 4:"SP"}
+
+    def __init__(self, sim_traffic:SimTraffic, sim_config:SimConfig, screen_param):
         self.sim_traffic:SimTraffic = sim_traffic
         self.center_id = int(sim_config.plot_vid)
         self.sim_config = sim_config
         self.window = None
         self.center_pedestrian = False
         self.lanelet_map:LaneletMap = None
+        self.screen_param = screen_param
+
 
     def start(self):
         """ Start dashboard in subprocess.
@@ -62,17 +69,20 @@ class Dashboard(object):
         self._process.start()
 
     def run_dash_process(self, traffic_state_sharr, debug_shdata):
-
         self.window = self.create_gui()
-        sync_dash = TickSync(DASH_RATE, realtime=True, block=True, verbose=False, label="DP")
-
+        sync_dash = TickSync(DASH_RATE, realtime=True, block=True, verbose=False, label="dash")
+        # handle user closing the window
+        self.window.protocol("WM_DELETE_WINDOW", lambda arg=self.window: (sync_dash.write_performance_log(), arg.destroy()))
+        # handle process termination sent from quit()
+        signal(SIGTERM, lambda s, f: sync_dash.write_performance_log())
+        # handle user's <CTRL>+C
+        signal(SIGINT, lambda s, f: sync_dash.write_performance_log())
         while sync_dash.tick():
             if not self.window:
                 return
 
             #clear
             self.clear_vehicle_charts()
-            self.tree_msg.configure(text= "")
 
             #get new data
             header, vehicles, pedestrians, traffic_lights, static_objects = self.sim_traffic.read_traffic_state(traffic_state_sharr, False)
@@ -97,7 +107,6 @@ class Dashboard(object):
             #find valid vehicle to focus plots and btree (if available)
             vid = None
 
-
             if (type(self.center_id) == str):
                 if self.center_id[0] == 'p':
                     self.center_pedestrian = True
@@ -119,7 +128,9 @@ class Dashboard(object):
                         if VEH_TRAJ_CHART: #vehicle traj plot
                             self.plot_vehicle_sd(traj, cand)
                         #behavior tree
-                        self.tree_msg.configure(text="==== Behavior Tree. Vehicle {} ====\n\n {} ".format(vid, btree_snapshot))
+                        self.tree_msg.delete("1.0", "end")
+                        if btree_snapshot:
+                            self.tree_msg.insert("1.0", btree_snapshot)
                     else:
                         #vehicles without planner:
                         self.plot_cartesian_chart(vid, vehicles, pedestrians)
@@ -145,16 +156,31 @@ class Dashboard(object):
             self.center_id = focus #sets center_id to an int or string
             #log.info("Changed focus to {}".format(self.center_id))
 
+    def get_maneuver(self, id):
+        if id in self.sim_traffic.debug_shdata:
+            btree_snapshot = self.sim_traffic.debug_shdata[id][1]
+            try:
+                if btree_snapshot:
+                    maneuver = Dashboard.maneuver_map[btree_snapshot[btree_snapshot.find("Maneuver.")+len("Maneuver."):-5]]
+                    return maneuver
+                else:
+                    return "Active"
+            except:
+                return "Inactive"
+        return "Inactive"
+
     def update_table(self, vehicles):
         current_set = self.tab.get_children()
         if current_set:
             self.tab.delete(*current_set)
         for vid in vehicles:
             vehicle = vehicles[vid]
-            sim_state = vehicles[vid].sim_state
+            status = self.get_maneuver(vid)
+            agent_type = Dashboard.vehicle_types[vehicle.type]
             sv = vehicle.state.get_state_vector()
-            truncate_vector(sv,2)
-            sv = ['v'+ str(vid)] + [sim_state] + sv
+            truncate_vector(sv,1)
+            sv = [f"{sv[0]} | {sv[1]} | {sv[2]}", f"{sv[3]} | {sv[4]} | {sv[5]}", f"{sv[6]} | {sv[7]} | {sv[8]}", f"{sv[9]} | {sv[10]} | {sv[11]}", int(sv[12])]
+            sv = ['v'+ str(vid)] + [agent_type] + [status] + sv
             self.tab.insert('', 'end', 'v' + str(vid), values=(sv))
         if self.tab.exists(self.center_id):
             self.tab.selection_set(self.center_id)
@@ -164,13 +190,17 @@ class Dashboard(object):
             return
         for pid in pedestrians:
             pedestrian = pedestrians[pid]
+            agent_type = Dashboard.ped_types[pedestrian.type]
             sim_state = pedestrians[pid].sim_state
             sp = pedestrian.state.get_state_vector()
-            truncate_vector(sp,2)
-
-            sp = ['p' + str(pid)] + [sim_state] + sp
+            truncate_vector(sp,1)
+            if sim_state == 1:
+                status = "Active"
+            else:
+                status = "Inactive"
+            sp = [f"{sp[0]} | {sp[1]} | {sp[2]}", f"{sp[3]} | {sp[4]} | {sp[5]}", f"{sp[6]} | {sp[7]} | {sp[8]}", f"{sp[9]} | {sp[10]} | {sp[11]}", int(sp[12])]
+            sp = ['p' + str(pid)] + [agent_type] + [status] + sp
             self.tab.insert('','end', 'p' + str(pid), values=(sp))
-
 
     def plot_map_chart(self, vehicles,pedestrians,traffic_light_states,static_objects):
         #-Global Map cartesian plot
@@ -210,7 +240,6 @@ class Dashboard(object):
         y_min = pedestrians[center_id].state.y - (CPLOT_SIZE/2)
         y_max = pedestrians[center_id].state.y + (CPLOT_SIZE/2)
 
-
         self.plot_road(x_min,x_max,y_min,y_max,traffic_lights)
         self.plot_static_objects(static_objects, x_min,x_max,y_min,y_max)
 
@@ -238,7 +267,6 @@ class Dashboard(object):
         y_min = vehicles[center_id].state.y - (CPLOT_SIZE/2)
         y_max = vehicles[center_id].state.y + (CPLOT_SIZE/2)
 
-
         self.plot_road(x_min,x_max,y_min,y_max,traffic_lights)
         self.plot_static_objects(static_objects, x_min,x_max,y_min,y_max)
         if REFERENCE_PATH and reference_path is not None:
@@ -258,7 +286,6 @@ class Dashboard(object):
         plt.gca().yaxis.set_visible(True)
         plt.margins(0,0)
         plt.subplots_adjust(bottom=0.05,top=0.95,left=0.05,right=0.95,hspace=0,wspace=0)
-
 
     def plot_road(self,x_min,x_max,y_min,y_max,traffic_light_states = None):
 
@@ -292,7 +319,6 @@ class Dashboard(object):
             #plt.plot(point[0], point[1], 'rH', markersize=10)
         #for stop_line in stop_lines:
             #plt.plot([pt.x for pt in stop_line], [pt.y for pt in stop_line], 'r-') #red
-
 
         #lights (must be drawn after other stop lines)
         if traffic_light_states:
@@ -367,8 +393,6 @@ class Dashboard(object):
                             vy = -vy
                         plt.arrow(x, y, vx/2, vy/2, head_width=1, head_length=1, color=colorcode, zorder=10)
 
-
-
     def plot_pedestrians(self, pedestrians, x_min, x_max, y_min, y_max, show_arrow=True):
         if pedestrians:
             for pid, pedestrian in pedestrians.items():
@@ -397,7 +421,6 @@ class Dashboard(object):
                     y_goal = self.sim_traffic.sim_config.pedestrian_goal_points[pid][-1][1]
                     plt.plot(x_goal, y_goal, 'r.' ,markersize=2, zorder=10)
                     plt.gca().text(x_goal+1, y_goal+1, "p{} goal".format(pid), style='italic', zorder=10)
-
 
     def plot_frenet_chart(self, center_id, traffic_state:TrafficState, debug_ref_path, traj, cand, unf, traj_s_shift):
         #Frenet Frame plot
@@ -440,7 +463,6 @@ class Dashboard(object):
             x, y = lane_config.stopline_pos
             plt.axvline(x, color= 'r', linestyle='-', zorder=1)
 
-
         #road_occupancy
         if SHOW_OCCUPANCY and traffic_state.road_occupancy is not None:
             road_occupancy:RoadOccupancy = traffic_state.road_occupancy
@@ -475,7 +497,6 @@ class Dashboard(object):
             gca.text(anchorx, anchory, y_label)
             gca.text(anchorx, anchory + cellsize, i_label)
 
-
             #junction
             #size = 3
             #intersections = traffic_state.intersections
@@ -484,7 +505,6 @@ class Dashboard(object):
             #for intersection in intersections:
             #    if isinstance(intersection, sv.SDVTrafficState.AllWayStopIntersection):
             #        intersection.
-
 
         # Regulatory Elements
         if (regulatory_elements is not None):
@@ -562,9 +582,6 @@ class Dashboard(object):
         # update lane config based on current (possibly outdated) reference frame
         #lane_config = self.read_map(vehicle_state, self.reference_path)
 
-
-
-
     def get_color_by_type(self,actor,a_type,sim_state = None, name = ''):
         #color
         colorcode = 'k' #black
@@ -613,7 +630,6 @@ class Dashboard(object):
         fig = plt.figure(Dashboard.TRAJ_FIG_ID)
         plt.cla()
 
-
     @staticmethod
     def plot_trajectory(s_coef, d_coef, T, traj_s_shift, tcolor='grey'):
         s_eq = to_equation(s_coef)
@@ -657,7 +673,7 @@ class Dashboard(object):
         s_vel_coef = differentiate(s_coef)
         Dashboard.plot_curve(s_vel_coef,T,'Long Vel (m/s)', '', 'T (s)')
 
-        # #   S Acc(t) curve
+        #S Acc(t) curve
         i+=1
         s_acc_coef = differentiate(s_vel_coef)
         plt.subplot(nrows,ncols,i)
@@ -721,59 +737,80 @@ class Dashboard(object):
     def create_gui(self):
         #Window
         window = tk.Tk()
+        window.configure(bg="white")
 
-        # Main containers:
-        # title frame
-        # stats frame
-        # global frame  [  map  | table  ]
-        # vehicle frame [  cart | frenet | btree ]
-        title_frame = tk.Frame(window, width = 1200, height = 50, bg = "black")
-        title_frame.grid(row=0, sticky="nsew")
-        #tk.ttk.Separator(window,orient=tk.HORIZONTAL).grid(row=1, column=0, sticky='ew' )
+        x, y, w, h = self.screen_param[0], self.screen_param[1], self.screen_param[2], self.screen_param[3]
 
-        stats_frame = tk.Frame(window, width = 1200, height = 50, bg = "white")
-        stats_frame.grid(row=2, sticky="nsew")
-        tk.ttk.Separator(window,orient=tk.HORIZONTAL).grid(row=3, column=0, sticky='ew' )
+        window.geometry("%dx%d+%d+%d" % (w, h, x, y))
 
-        global_frame = tk.Frame(window, width = 1200, height = 300, bg = "white")
-        global_frame.grid(row=4, sticky="nsew")
-        tk.ttk.Separator(window,orient=tk.HORIZONTAL).grid(row=5, column=0, sticky='ew' )
+        vis_scaling = 1
+        txt_scaling = 1
 
-        vehicle_frame = tk.Frame(window, width = 1200, height = 300, bg = "white")
-        vehicle_frame.grid(row=6, sticky="nsew")
+        if h >= 1440 and w >= 2560:
+            vis_scaling = 3
+            txt_scaling = 1.5
+        elif h >= 1080 and w >= 1920:
+            vis_scaling = 2
+            txt_scaling = 1.2
 
-        #global sub containers
-        if SHOW_MPLOT:
-            map_frame = tk.Frame(global_frame, width = 600, height = 300, bg = "red") #create
-            map_frame.grid(row=0, column=1, sticky="nsew") #set pos
+        # Configure row and column weights for dynamic resizing
+        window.columnconfigure(0, weight=1)  # Left section (70% width)
+        window.columnconfigure(1, weight=1)  # Right section (30% width)
+        window.columnconfigure(2, weight=1)  # Scrollable content
+        window.rowconfigure(0, weight=1)  # Title row
+        window.rowconfigure(1, weight=1)  # Stats row
+        window.rowconfigure(2, weight=3)  # Map/cartesian row
+        window.rowconfigure(3, weight=3)  # Fren frame
+        window.rowconfigure(4, weight=3)  # Tab frame
 
-        tab_frame = tk.Frame(global_frame, width = 1000, height = 300, bg = "blue")
-        tab_frame.grid(row=0, column=2, sticky="nsew")
+        # # Frames
+        title_frame = tk.Frame(window, bg="black")
+        title_frame.grid(row=1, column=0, columnspan=3, sticky="nsew")
 
-        #vehicle sub containers
-        cart_frame = tk.Frame(vehicle_frame if SHOW_MPLOT else global_frame, width = 300, height = 300, bg = "white")
-        fren_frame = tk.Frame(vehicle_frame, width = 300, height = 300, bg = "white")
-        bt_frame = tk.Frame(vehicle_frame, width = 300, height = 300, bg = "white")
-        traj_frame = tk.Frame(vehicle_frame, width = 300, height = 300, bg = "white")
+        stats_frame = tk.Frame(window, bg="white")
+        stats_frame.grid(row=2, column=0, columnspan=3, sticky="nsew")
 
-        # Show enabled plots (left justified)
-        c = 0
-        for cframe, visible in zip([cart_frame, fren_frame, bt_frame], [SHOW_CPLOT, SHOW_FFPLOT, SHOW_BTREE]):
-            if visible:
-                cframe.grid(row=0, column=c, sticky="nsew")
-                c += 1
+        map_frame = tk.Frame(window, bg="white")
+        map_frame.grid(row=3, column=0, sticky="nsew")
+
+        cart_frame = tk.Frame(window, bg="white")
+        cart_frame.grid(row=3, column=1, sticky="nsew")
+
+        fren_frame = tk.Frame(window, bg="white")
+        fren_frame.grid(row=4, column=0, columnspan=2, sticky="nsew")
+
+        tab_frame = tk.Frame(window, bg="white")
+        tab_frame.grid(row=5, column=0, columnspan=2, sticky="nsew")
+
+        # Scrollable Right Section
+        btree_canvas = tk.Canvas(window, bg="white")
+        btree_canvas.grid(row=2, column=2, rowspan=4, sticky="nsew")
+
+        btree_scrollbar = tk.Scrollbar(window, orient="vertical", command=btree_canvas.yview)
+        btree_scrollbar.grid(row=2, column=2, rowspan=4, sticky="nse")  # Align right edge of the column
+
+        btree_canvas.configure(yscrollcommand=btree_scrollbar.set)
+
+        bt_frame = tk.Frame(btree_canvas, bg="white")
+        btree_canvas.create_window((0, 0), window=bt_frame, anchor="nw")
+
+        # Make widgets inside bt_frame expand
+        bt_frame.bind("<Configure>", lambda e: btree_canvas.configure(scrollregion=btree_canvas.bbox("all")))
+
+        # #vehicle sub containers
+        traj_frame = tk.Frame(bt_frame, bg = "white")
 
         # Content:
         window.title = 'GeoScenario Server'
         str_title = ' GeoScenario Server '
-        img_logos = ImageTk.PhotoImage(Image.open(ROOT_DIR + "/dash/img/logos.png").resize((380, 50)))
+        img_logos = ImageTk.PhotoImage(Image.open(ROOT_DIR + "/dash/img/logos.png").resize((int(380*vis_scaling), int(50*vis_scaling))))
         img_gs = pimg = ImageTk.PhotoImage(Image.open(ROOT_DIR + "/dash/img/icons/gs.png").resize((40, 40)))
         img_veh = ImageTk.PhotoImage(Image.open(ROOT_DIR + "/dash/img/icons/vehicle.png").resize((100, 47)))
         img_ego = ImageTk.PhotoImage(Image.open(ROOT_DIR + "/dash/img/icons/vehicle_ego.png").resize((80, 30)))
 
         # Widgets
         # title
-        lb = tk.Label(title_frame, text=str_title, bg = "black", fg="white",font=('OpenSans', 30))
+        lb = tk.Label(title_frame, text=str_title, bg = "black", fg="white",font=('TkHeadingFont', int(30*txt_scaling))) # needs scaling
         lb.pack(side = 'left')
 
         lb_logos = tk.Label(title_frame, image=img_logos)
@@ -781,78 +818,73 @@ class Dashboard(object):
         lb_logos.pack(side='right')
 
         # stats container:
-        scenario_config_lb = tk.Label(stats_frame, bg='white', text='Loading \n scenario...', font=('OpenSans', 10), anchor="w", justify=tk.LEFT)
+        scenario_config_lb = tk.Label(stats_frame, bg='white', text='Loading \n scenario...', font=('TkHeadingFont', int(10*txt_scaling)), anchor="w", justify=tk.LEFT)
         scenario_config_lb.pack(side = 'left')
         self.scenario_config_lb = scenario_config_lb
-
-        #scenario_stats_lb = tk.Label(stats_frame, bg='white', text='Loading \n scenario...', font=('OpenSans', 12), anchor="e", justify=tk.RIGHT)
-        #scenario_stats_lb.pack(side = 'right')
-        #self.scenario_stats_lb = scenario_stats_lb
-
-        # global container:
 
         # map
         if SHOW_MPLOT:
             fig_map = plt.figure(Dashboard.MAP_FIG_ID)
-            fig_map.set_size_inches(5, 5, forward=True)
+            fig_map.set_size_inches(2*vis_scaling, 2*vis_scaling, forward=True) # needs to be scaled
             self.map_canvas = FigureCanvasTkAgg(fig_map, map_frame)
-            self.map_canvas.get_tk_widget().pack()
+            self.map_canvas.get_tk_widget().pack(expand=True, fill="both")
 
         # vehicle table
         tab = ttk.Treeview(tab_frame, show=['headings'])
         tab['columns'] = (
-            'id', 'sim_st',
-            'x', 'x_vel', 'x_acc',
-            'y', 'y_vel', 'y_acc',
-            's', 's_vel', 's_acc',
-            'd', 'd_vel', 'd_acc',
+            'id', 'type', 'state',
+            'x | x_vel | x_acc', 'y | y_vel | y_acc',
+            's | s_vel | s_acc', 'd | d_vel | d_acc',
             'yaw'
         )
+        width_scaling = int(vis_scaling * 0.6)
         for col in tab['columns']:
             tab.heading(col, text=col, anchor='center')
-            tab.column(col, anchor='center', width=65, minwidth=65)
+            tab.column(col, anchor='center', width=200*width_scaling, minwidth=1, stretch=False)
+        tab.column("id", width=100*width_scaling)
+        tab.column("type", width=100*width_scaling)
+        tab.column("state", width=150*width_scaling)
+        tab.column("yaw", width=100*width_scaling)
         tab.bind('<<TreeviewSelect>>', self.change_tab_focus)
         #tab.grid(row=0,column=0, sticky='nsew')
         tab.pack(fill='both', expand=True) #x and y
+        style = ttk.Style()
+        style.configure("Treeview", font=("TkDefaultFont", int(11*txt_scaling))) # needs to be scaled
         self.tab = tab
-
-
-        # vehicle container:
 
         # vehicle cart
         fig_cart = plt.figure(Dashboard.CART_FIG_ID)
         if not SHOW_MPLOT:
-            fig_cart.set_size_inches(7, 7, forward=True)
+            fig_cart.set_size_inches(4, 4, forward=True) # needs to be scaled
         else:
-            fig_cart.set_size_inches(6, 6, forward=True)
+            fig_cart.set_size_inches(2*vis_scaling, 2*vis_scaling, forward=True) # needs to be scaled
         self.cart_canvas = FigureCanvasTkAgg(fig_cart, cart_frame)
-        self.cart_canvas.get_tk_widget().pack()
+        self.cart_canvas.get_tk_widget().pack(expand=True, fill="both")
 
         # vehicle frenet
         fig_fren = plt.figure(Dashboard.FRE_FIG_ID)
-        #fig_fren.set_size_inches(6,4,forward=True)
+        fig_fren.set_size_inches(1*vis_scaling,1*vis_scaling,forward=True) # needs to be scaled
         self.fren_canvas = FigureCanvasTkAgg(fig_fren, fren_frame)
-        self.fren_canvas.get_tk_widget().pack()
+        self.fren_canvas.get_tk_widget().pack(expand=True, fill="both", padx=5*vis_scaling, pady=5*vis_scaling)
 
         # vehicle traj
         fig_traj = plt.figure(Dashboard.TRAJ_FIG_ID)
-        fig_traj.set_size_inches(4,4,forward=True)
+        fig_traj.set_size_inches(2*vis_scaling,2*vis_scaling,forward=True) # needs to be scaled
         self.traj_canvas = FigureCanvasTkAgg(fig_traj, traj_frame)
-        self.traj_canvas.get_tk_widget().pack()
+        self.traj_canvas.get_tk_widget().pack(expand=True, fill="both")
 
-        tree_msg= tk.Message(bt_frame,text='', anchor='s',
-                                    width=300,
-                                    bg='white',foreground='black')
+        tree_msg = tk.Text(bt_frame, height=int(65*txt_scaling), width=int(60*txt_scaling), spacing2=1, bg="white", fg="black", wrap="word", font=("TkDefaultFont", int(12*txt_scaling)))
         self.tree_msg = tree_msg
         tree_msg.grid(row=0,column=0, sticky='nsew')
 
         #General plot Layout
-        matplotlib.rc('font', size=8)
-        matplotlib.rc('axes', titlesize=8)
-        matplotlib.rc('axes', labelsize=8)
-        matplotlib.rc('xtick', labelsize=6)
-        matplotlib.rc('ytick', labelsize=6)
-        matplotlib.rc('legend', fontsize=8)
-        matplotlib.rc('figure', titlesize=8)
+        matplotlib.rc('font', size=int(8*txt_scaling)) # needs to be scaled
+        matplotlib.rc('lines', linewidth=2*vis_scaling) #needs to be scaled
+        matplotlib.rc('axes', titlesize=8*vis_scaling)
+        matplotlib.rc('axes', labelsize=8*vis_scaling)
+        matplotlib.rc('xtick', labelsize=6*vis_scaling)
+        matplotlib.rc('ytick', labelsize=6*vis_scaling)
+        matplotlib.rc('legend', fontsize=8*vis_scaling)
+        matplotlib.rc('figure', titlesize=8*vis_scaling)
 
         return window

@@ -7,28 +7,33 @@
 # dashboard (debug), and external Simulator (Unreal or alternative Graphics engine)
 # --------------------------------------------
 
-from multiprocessing import  Manager, Array
-import numpy as np
-import glog as log
-from copy import copy
 import csv
-from shm.SimSharedMemoryServer import *
-from Actor import *
-from sv.Vehicle import Vehicle
-from sp.Pedestrian import *
-from TrafficLight import TrafficLight
+import glog as log
+import numpy as np
 import time
+
+from copy import copy
+from multiprocessing import  Manager, Array
+
+from Actor import *
+from shm.SimSharedMemoryServer import *
+from sp.Pedestrian import *
+from sv.Vehicle import Vehicle
+from TrafficLight import TrafficLight
+from requirements import RequirementsChecker
+from Actor import ActorSimState
+
 try:
     from shm.CarlaSync import *
 except:
     log.warning("Carla API not found")
-
 
 class SimTraffic(object):
 
     def __init__(self, laneletmap, sim_config):
         self.lanelet_map = laneletmap
         self.sim_config = sim_config
+        self.origin = None
 
         #Dyn agents
         self.vehicles = {}  #dictionary for direct access using vid
@@ -51,6 +56,10 @@ class SimTraffic(object):
         #Traffic Log
         self.log_file = ''
         self.vehicles_log = {}
+        self.traffic_running = False
+
+    def set_origin(self, lat, lon, alt):
+        self.origin = (lat, lon, alt)
 
     def add_vehicle(self, v:Vehicle):
         self.vehicles[v.id] = v
@@ -78,8 +87,14 @@ class SimTraffic(object):
     def add_static_obect(self, oid, x,y):
         self.static_objects[oid] = StaticObject(oid,x,y)
 
+    def collision_check(self, pedestrian):
+        for vid, vehicle in self.vehicles.items():
+            if vehicle.type == Vehicle.SDV_TYPE:
+                _requirementsChecker = RequirementsChecker(vehicle, False)
+                _requirementsChecker.collision_check(vid, pedestrian.id, [pedestrian.state.x, pedestrian.state.y], vehicle, pedestrian.PEDESTRIAN_RADIUS)
 
     def start(self):
+        self.traffic_running = True
         #Optional CARLA co-sim
         if CARLA_COSIMULATION:
             self.carla_sync = CarlaSync()
@@ -90,12 +105,12 @@ class SimTraffic(object):
         self.write_traffic_state(0 , 0.0, 0.0)
 
         #If cosimulation, hold start waiting for first client state
-        if self.cosimulation == True and WAIT_FOR_CLIENT:
-            log.warn("GSServer is running in Cosimulation. Waiting for client state in SEM:{} KEY:{}...".format(CS_SEM_KEY, CS_SHM_KEY))
+        if self.cosimulation == True and self.sim_config.wait_for_client:
+            log.warn("GSServer is running in co-simulation. Waiting for client state in SEM:{} KEY:{}...".format(CS_SEM_KEY, CS_SHM_KEY))
             while(True):
                 header, vstates, _, _, _ = self.sim_client_shm.read_client_state(len(self.vehicles), len(self.pedestrians))
                 if len(vstates)>0:
-                    break;
+                    break
                 time.sleep(0.5)
 
         #Start SDV Planners
@@ -108,13 +123,14 @@ class SimTraffic(object):
             if pedestrian.type == Pedestrian.SP_TYPE:
                 pedestrian.start_planner()
 
-    def stop_all(self):
+    def stop_all(self, interrupted = False):
+        self.traffic_running = False
         if self.carla_sync:
             self.carla_sync.quit()
 
         self.write_log_trajectories()
         for vid in self.vehicles:
-            self.vehicles[vid].stop()
+            self.vehicles[vid].stop(interrupted)
         for pid in self.pedestrians:
             self.pedestrians[pid].stop()
 
@@ -163,7 +179,6 @@ class SimTraffic(object):
                 if self.vehicles[vid].type is Vehicle.EV_TYPE and vid in vstates:
                     self.vehicles[vid].update_sim_state(vstates[vid], delta_time) #client_delta_time
 
-
         #tick vehicles (all types)
         for vid in self.vehicles:
             self.vehicles[vid].tick(tick_count, delta_time, sim_time)
@@ -171,6 +186,11 @@ class SimTraffic(object):
         #tick pedestrians:
         for pid in self.pedestrians:
             self.pedestrians[pid].tick(tick_count, delta_time, sim_time)
+            if self.pedestrians[pid].sim_state not in [ActorSimState.ACTIVE, ActorSimState.ACTIVE.value]:
+                continue
+            self.collision_check(self.pedestrians[pid])
+
+        Pedestrian.VEHICLES_POS = {}
 
         #Update traffic light states
         for tlid in self.traffic_lights:
@@ -181,10 +201,6 @@ class SimTraffic(object):
 
         #log.info(self.debug_shdata)
         self.log_trajectories(tick_count, delta_time, sim_time)
-
-        #Collisions at Server Side
-        if self.detect_collisions(tick_count, delta_time, sim_time):
-            return -1
 
         return 0
 
@@ -250,34 +266,11 @@ class SimTraffic(object):
         #Shm for external Simulator (Unreal)
         #Write out simulator state
         if (self.sim_client_shm):
-            self.sim_client_shm.write_server_state(tick_count, sim_time, delta_time, self.vehicles, self.pedestrians)
+            self.sim_client_shm.write_server_state(tick_count, sim_time, delta_time, self.origin, self.vehicles, self.pedestrians)
 
         #Carla socket
         if self.carla_sync:
             self.carla_sync.write_server_state(tick_count, delta_time, self.vehicles)
-
-
-
-    def detect_collisions(self,tick_count, delta_time, sim_time):
-        for id_va, va in self.vehicles.items():
-            if va.sim_state is not ActorSimState.ACTIVE:
-                continue
-            min_x = (va.state.x - VEHICLE_RADIUS)
-            max_x = (va.state.x + VEHICLE_RADIUS)
-            min_y = (va.state.y - VEHICLE_RADIUS)
-            max_y = (va.state.y + VEHICLE_RADIUS)
-            for id_vb, vb in self.vehicles.items():
-                if vb.sim_state is not ActorSimState.ACTIVE:
-                    continue
-                if id_va != id_vb:
-                    #this filter will be important when we use alternative (and more expensive) collision checking methods
-                    if  (min_x <= vb.state.x <= max_x) and (min_y <= vb.state.y <= max_y):
-                        dist = distance_2p(va.state.x,va.state.y, vb.state.x, vb.state.y)
-                        if  dist < (2*VEHICLE_RADIUS):
-                            log.error("Collision between vehicles {} {}".format(id_va,id_vb))
-                            return True
-        return False
-
 
 
     def log_sim_state(self, client_vehicle_states, disabled_vehicles):
@@ -299,7 +292,6 @@ class SimTraffic(object):
                 np.linalg.norm([state.x_vel, state.y_vel])
             )
         log.info(state_str)
-
 
     def log_trajectories(self,tick_count,delta_time,sim_time):
         if WRITE_TRAJECTORIES:
@@ -326,7 +318,6 @@ class SimTraffic(object):
                     csv_writer.writerow(titleline)
                     for line in vlog:
                         csv_writer.writerow(line)
-
 
     #For independent processes:
     def read_traffic_state(self, traffic_state_sharr, actives_only = True):

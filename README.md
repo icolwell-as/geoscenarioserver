@@ -4,10 +4,10 @@ Includes: GeoScenario Parser, Checker, Sim Vehicle Planner with Behavior Trees a
 
 ## Dependencies
 
-- Linux, macOS, or Windows 10/11 + WSL2
+- Linux or Windows 10/11 + WSL2
 - Python >= 3.8
 
-GeoScenario Server can run natively on Linux, within a [conda-forge](https://conda-forge.org/) environment, or on WSL2.
+GeoScenario Server can run natively on Linux, within a [conda](https://conda-forge.org/) environment, or on WSL2.
 
 ### Deb packages for Linux native
 
@@ -33,35 +33,96 @@ Tested on native Ubuntu 20.04, 22.04, 24.04, and within Windows 10 WSL2.
 - sysv-ipc
 - tk
 
+#### Ubuntu native or Windows WSL2 installation
+
 To automatically install the dependencies for linux native, execute
 
 ```
 bash scripts/install_dependencies.bash
 ```
 
-Alternatively, to automatically create a conda-forge environment called `gss` with the required packages, execute
+#### Conda-forge and robostack (ROS) using pixi (recommended)
+
+To install [pixi](https://pixi.sh/), execute
 ```
-bash scripts/setup_conda-forge_env.bash
+curl -fsSL https://pixi.sh/install.sh | bash
 ```
+Re-open the terminal or source your `.bashrc` to make `pixi` available.
+
+All pixi commands must be executed in geoscenarioserver as the working directory.
+```
+cd geoscenarioserver
+```
+
+Pixi project provides the following tasks:
+```
+cd geoscenarioserver
+pixi run gss <parameters>
+pixi run test_scenarios_ci
+pixi run -e humble rqt
+pixi run -e humble ros_client_build
+pixi run -e humble ros_client
+pixi run -e humble ros_mock_co_simulator
+```
+
+To run automated test of ROS2 client using the mock co-simulator, execute:
+```
+bash geoscenarioserver/scripts/pixi_test_ros2_client.bash
+```
+
+Finally, to activate the environment and execute arbitary commands without ROS2, execute
+```
+cd geoscenarioserver
+pixi shell
+```
+or with ROS2, execute
+```
+cd geoscenarioserver
+pixi shell -e humble
+```
+
+#### Conda-forge and robostack (ROS) using micromamba
+
+To automatically create a conda-forge environment called `gss` with the required packages, use the script `setup-conda-forge-env.bash`:
+```
+bash setup-conda-forge-env.bash --help
+
+Create a conda-forge environment called gss for running GeoScenarioServer
+
+Usage:
+  $ bash setup_conda-forge_env.bash [-r|--ros2] [-t|--test-run] [-h|--help]
+    -r|--ros2       install ROS2 humble and build tools into the environment 'gss'; build the ROS2 client
+    -t|--test-run   start GeoScenarioServer within the environment 'gss'
+    -h|--help       display usage instructions and exit
+```
+
 
 ## Running
 
 - run `python3 GSServer.py -s scenarios/<geoscenario_file>` to start the Server.
 
 ```
-optional arguments:
+usage: GSServer.py [-h] [-s [FILE ...]] [--verify_map FILE] [-q VERBOSE] [-n] [-m MAP_PATH] [-b BTREE_LOCATIONS] [-wi] [-wc]
+
+options:
   -h, --help            show this help message and exit
-  -s [FILE [FILE ...]], --scenario [FILE [FILE ...]]
+  -s [FILE ...], --scenario [FILE ...]
                         GeoScenario file. If no file is provided, the GSServer will load a scenario from code
+  --verify_map FILE     Lanelet map file
   -q VERBOSE, --quiet VERBOSE
                         don't print messages to stdout
-  -m, --map-path
+  -n, --no-dash         run without the dashboard
+  -m MAP_PATH, --map-path MAP_PATH
                         Set the prefix to append to the value of the attribute `globalconfig->lanelet`
-                        e.g. --map-path $HOME/anm_unreal_test_suite/maps
-  -b, --btree-locations
+  -b BTREE_LOCATIONS, --btree-locations BTREE_LOCATIONS
                         Add higher priority locations to search for btrees by agent btypes
-                        e.g. --btree-locations $HOME/anm_unreal_test_suite/btrees
+  -wi, --wait-for-input
+                        Wait for the user to press [ENTER] to start the simulation
+  -wc, --wait-for-client
+                        Wait for a valid client state to start the simulation
 ```
+
+GSServer creates various files on the folder `./outputs`, which can also be overridden using the environment variable `GSS_OUTPUTS`.
 
 - GeoScenario files (2.0 required) must be placed inside *scenarios/*
 - If a file is not given, you must provide a manual problem startup from code.

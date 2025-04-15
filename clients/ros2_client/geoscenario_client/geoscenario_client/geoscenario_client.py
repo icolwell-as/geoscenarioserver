@@ -1,42 +1,72 @@
 import rclpy
-import math
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
 
 from geoscenario_msgs.msg import Tick, Pedestrian, Vehicle
+from geographic_msgs.msg import GeoPoint
 
 from .SimSharedMemoryClient import *
 
 class GSClient(Node):
-
     def __init__(self):
         super().__init__('geoscenario_client')
+        self.initialize_state()
         self.tick_pub = self.create_publisher(Tick, '/gs/tick', 10)
-        timer_period = 0.033333  # seconds
-        self.timer = self.create_timer(timer_period, self.timer_callback)
-        self.sim_client_shm = SimSharedMemoryClient()
-        self.previous_tick_count = 0
+        self.tick_sub = self.create_subscription(Tick, '/gs/tick_from_client', self.tick_from_client, 10)
 
+        self.timer = self.create_timer(self.short_timer_period, self.timer_callback)
+
+    def initialize_state(self):
+        # poll frequently at the beginning
+        self.short_timer_period = 0.005  # 5 miliseconds
+        self.previous_tick_count = 0
+        # remember that the connection was established to be able to detect that it was lost when the server shut down
+        self.previously_connected = False
+        self.frequent_polling_switch_count = 0
+        self.sim_client_shm = SimSharedMemoryClient()
 
     def timer_callback(self):
-        header, vehicles, pedestrians = self.sim_client_shm.read_server_state()
+        header, origin, vehicles, pedestrians = self.sim_client_shm.read_server_state()
 
         if not header:
-            self.get_logger().warn('Waiting for geoscenario server', throttle_duration_sec=2)
+            if self.previously_connected:
+                self.get_logger().info('Disconnected from GeoScenario server')
+                self.get_logger().info(f"Switched to frequent polling {self.frequent_polling_switch_count} times out of {self.previous_tick_count} ticks")
+                # recreate the client to try to reconnect
+                self.initialize_state()
+            else:
+                # not previously connected, keep trying
+                self.get_logger().info('Waiting for GeoScenario server', throttle_duration_sec=10)
             return
 
+        # record that we have a connection
+        if not self.previously_connected:
+            self.get_logger().info('Connected to GeoScenario server')
+            self.previously_connected = True
+
         tick_count = header["tick_count"]
+        # update the timer with the current server frequency
+        self.timer.timer_period_ns = header["delta_time"] * 1e9 # convert seconds to nanoseconds
 
-        # TODO: Consider a better way to keep the client synchronized with the server. Should be possible with semaphores
+        # ensure nothing is skipped
         if tick_count > self.previous_tick_count + 1:
-            self.get_logger().error('Tick %d was skipped!' % (self.previous_tick_count + 1))
+            for i in range(self.previous_tick_count + 1, tick_count):
+                self.get_logger().error('Tick %d was skipped!' % i)
         elif tick_count == self.previous_tick_count:
-            self.get_logger().warn('Same tick as last time, the same data will be published again')
-
+            # nothing new yet, delta_time must have increased
+            # switch back to a more frequent polling than the delta_time
+            self.timer.timer_period_ns == self.short_timer_period * 1e9
+            self.frequent_polling_switch_count += 1
+            return
 
         tick_msg = Tick()
         tick_msg.tick_count = tick_count
         tick_msg.simulation_time = header["simulation_time"]
         tick_msg.delta_time = header["delta_time"]
+        tick_msg.origin = GeoPoint()
+        tick_msg.origin.latitude = origin["origin_lat"]
+        tick_msg.origin.longitude = origin["origin_lon"]
+        tick_msg.origin.altitude = origin["origin_alt"]
 
         for vehicle in vehicles:
             msg = Vehicle()
@@ -66,6 +96,39 @@ class GSClient(Node):
         self.tick_pub.publish(tick_msg)
         self.previous_tick_count = tick_count
 
+    def tick_from_client(self, msg):
+        # convert the msg into dictionaries
+        # ignore origin, simulation_time, type, yaw, steering angle not used in the client
+        vehicles = []
+        for msg_vehicle in msg.vehicles:
+            vehicle = {}
+            vehicle["id"] = msg_vehicle.id
+            vehicle["type"] = msg_vehicle.type # not used
+            vehicle["x"] = msg_vehicle.position.x
+            vehicle["y"] = msg_vehicle.position.y
+            vehicle["z"] = msg_vehicle.position.z
+            vehicle["vx"] = msg_vehicle.velocity.x
+            vehicle["vy"] = msg_vehicle.velocity.y
+            vehicle["yaw"] = msg_vehicle.yaw # not used
+            vehicle["steering_angle"] = msg_vehicle.steering_angle # not used
+            vehicle["active"] = msg_vehicle.active
+            vehicles.append(vehicle)
+
+        pedestrians = []
+        for msg_pedestrian in msg.pedestrians:
+            pedestrian = {}
+            pedestrian["id"] = msg_pedestrian.id
+            pedestrian["type"] = msg_pedestrian.type # not used
+            pedestrian["x"] = msg_pedestrian.position.x
+            pedestrian["y"] = msg_pedestrian.position.y
+            pedestrian["z"] = msg_pedestrian.position.z
+            pedestrian["vx"] = msg_pedestrian.velocity.x
+            pedestrian["vy"] = msg_pedestrian.velocity.y
+            pedestrian["yaw"] = msg_pedestrian.yaw # not used
+            pedestrian["active"] = msg_vehicle.active
+            pedestrians.append(pedestrian)
+
+        self.sim_client_shm.write_client_state(msg.tick_count, msg.delta_time, vehicles, pedestrians)
 
 def main(args=None):
     rclpy.init(args=args)
@@ -74,12 +137,13 @@ def main(args=None):
 
     try:
         rclpy.spin(gs_client)
-    except KeyboardInterrupt: # Exit (Ctrl-C)
-        gs_client.get_logger().info('Shutdown')
-
-    gs_client.destroy_node()
-
-    rclpy.shutdown()
+    except KeyboardInterrupt: # <ctrl>+c
+        gs_client.get_logger().info('Shutdown keyboard interrupt (SIGINT)')
+    except ExternalShutdownException:
+        gs_client.get_logger().info('External shutdown (SIGTERM)')
+    finally:
+        gs_client.destroy_node()
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':

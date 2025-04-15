@@ -30,7 +30,11 @@ class Pedestrian(Actor):
     EP_TYPE = 3
     SP_TYPE = 4
 
-    PEDESTRIAN_RADIUS = 0.2
+    # Source NCAP: https://cdn.euroncap.com/media/58226/euro-ncap-aeb-vru-test-protocol-v303.pdf
+    # Pedestrian dimensions (width: 0.5 m, length: 0.6 m) approximated by a circle with radius 0.27 m
+    PEDESTRIAN_RADIUS = 0.27
+
+    VEHICLES_POS = {}
 
     def __init__(self, id, name='', start_state=[0.0,0.0,0.0, 0.0,0.0,0.0], yaw=0.0):
         super().__init__(id, name, start_state, yaw=yaw)
@@ -157,11 +161,9 @@ class SP(Pedestrian):
         for vehicle in {veh for (vid,veh) in self.sim_traffic.vehicles.items()}:
             f_vehicle += self.vehicle_interaction(curr_pos, curr_vel, vehicle)
 
-
         # repulsive forces from borders
         for border in borders:
             f_borders += self.border_interaction(curr_pos, curr_vel, border)
-
 
         f_sum = f_adapt + f_other_ped + f_vehicle + f_borders
 
@@ -242,7 +244,6 @@ class SP(Pedestrian):
         body_factor_weight = 1 # phi*max(0, rij-dij)
         friction_factor_weight = omega*max(0, rij-dij)
 
-
         fij = (A*np.exp((rij-dij)/B) * body_factor_weight)*nij + friction_factor_weight*delta_vij*tij + evasive_effect
 
         return fij
@@ -262,7 +263,7 @@ class SP(Pedestrian):
 
     def vehicle_interaction(self, curr_pos, curr_vel, vehicle):
         A = 20
-        B = 0.08
+        B = 0.1
         lambda_i = 0.5
 
         l = VEHICLE_LENGTH / 2
@@ -273,16 +274,28 @@ class SP(Pedestrian):
         veh_heading = np.array([np.cos(veh_yaw_rad), np.sin(veh_yaw_rad)])
 
         # angle btw ped's position and vehicle's velocity vector
-        dot_product = max(min(np.dot(curr_pos-veh_pos, veh_heading), 1.0), -1.0) # stay within [-1,1] domain for arccos
-        theta = np.arccos(dot_product) / (np.linalg.norm(curr_pos-veh_pos)*np.linalg.norm(veh_heading))
-        epsilon = np.sqrt(l**2 - w**2) / l
+        dot_product = np.dot(curr_pos-veh_pos, veh_heading)
+    
+        theta = np.degrees(np.arccos((dot_product) / (np.linalg.norm(curr_pos-veh_pos)*np.linalg.norm(veh_heading))))
 
         ri = self.radius
-        rv = w / np.sqrt(1 - (epsilon**2 * np.cos(theta)**2))
+
+        #bounding box of the vehicle 
+        theta_max = np.degrees(np.arcsin(w/l)) 
+        if (-theta_max <= theta <= theta_max):
+            rv = l
+        elif 180 - theta_max <= theta or theta <= -180 + theta_max:
+            rv = l
+        else:
+            #the collision is in the side
+            boundary_length = abs(w/np.cos(np.radians(90-abs(theta))))
+            rv = boundary_length
+    
         riv = ri + rv
+        
         div = np.linalg.norm(curr_pos - veh_pos)
         niv = normalize(curr_pos - veh_pos)
 
-        fiv = A*np.exp((riv-div)/B)*niv * (lambda_i + ((1 - lambda_i)*((1+np.cos(theta)) / 2)))
+        fiv = A*np.exp((riv-div)/B)*niv * (lambda_i + ((1 - lambda_i)*((1+np.cos(np.radians(theta))) / 2)))
 
         return fiv

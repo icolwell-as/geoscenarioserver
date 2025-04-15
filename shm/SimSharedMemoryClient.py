@@ -1,4 +1,5 @@
 import sysv_ipc
+import math
 import time
 
 SHM_KEY = 123456
@@ -11,6 +12,7 @@ SHM_SIZE = 2048
 class SimSharedMemoryClient(object):
 
     def __init__(self, ss_shm_key=SHM_KEY, ss_sem_key=SEM_KEY, cs_shm_key=CS_SHM_KEY, cs_sem_key=CS_SEM_KEY):
+        self.is_connected = False
         # Server state shared memory
         self.ss_shm_key = ss_shm_key
         self.ss_sem_key = ss_sem_key
@@ -19,6 +21,7 @@ class SimSharedMemoryClient(object):
         self.cs_sem_key = cs_sem_key
 
         # Semaphore initialization according to: https://semanchuk.com/philip/sysv_ipc/#sem_init
+        # Server
         try:
             self.ss_sem = sysv_ipc.Semaphore(self.ss_sem_key, sysv_ipc.IPC_CREX)
         except sysv_ipc.ExistentialError:
@@ -30,19 +33,25 @@ class SimSharedMemoryClient(object):
         else:
             # Initializing sem.o_time to nonzero value
             self.ss_sem.release()
-
-        print("ShM SS semaphore created")
-
-        if self.connect_to_shared_memory():
-            print("Connected to server state shared memory")
+        # Client
+        try:
+            self.cs_sem = sysv_ipc.Semaphore(self.cs_sem_key, sysv_ipc.IPC_CREX)
+        except sysv_ipc.ExistentialError:
+            # One of my peers created the semaphore already
+            self.cs_sem = sysv_ipc.Semaphore(self.cs_sem_key)
+            # Waiting for that peer to do the first acquire or release
+            while not self.cs_sem.o_time:
+                time.sleep(.1)
         else:
-            print("Could not connect to server state shared memory")
+            # Initializing sem.o_time to nonzero value
+            self.cs_sem.release()
 
 
     def connect_to_shared_memory(self):
         # Shared memory initialization
         try:
             self.ss_shm = sysv_ipc.SharedMemory(self.ss_shm_key, mode=int(str(666), 8), size=SHM_SIZE)
+            self.cs_shm = sysv_ipc.SharedMemory(self.cs_shm_key, mode=int(str(666), 8), size=SHM_SIZE)
             self.is_connected = True
         except sysv_ipc.Error:
             self.is_connected = False
@@ -55,18 +64,20 @@ class SimSharedMemoryClient(object):
         """ Reads from shared memory pose data for each agent.
             Shared memory format:
                 tick_count simulation_time delta_time n_vehicles n_pedestrians
+                origin_lat origin_lon origin_alt
                 vid v_type x y z vx vy yaw steering_angle
                 pid p_type x y z vx vy yaw
                 ...
         """
         header = {}
+        origin = {}
         vehicles = []
         pedestrians = []
 
         if not self.is_connected:
             # Not yet connected to shared memory, maybe the server isn't started yet
             if not self.connect_to_shared_memory():
-                return header, vehicles, pedestrians
+                return header, origin, vehicles, pedestrians
 
         # Read server shared memory
         try:
@@ -77,10 +88,10 @@ class SimSharedMemoryClient(object):
             self.ss_sem.release()
         except sysv_ipc.ExistentialError:
             self.is_connected = False
-            return header, vehicles, pedestrians
+            return header, origin, vehicles, pedestrians
         except sysv_ipc.BusyError:
             print("Cannot acquire client state semaphore...")
-            return header, vehicles, pedestrians
+            return header, origin, vehicles, pedestrians
 
         # Parse server data
         data_str = data.decode("utf-8")
@@ -88,8 +99,9 @@ class SimSharedMemoryClient(object):
 
         if len(data_arr) == 0 or int.from_bytes(data, byteorder='big') == 0:
             # memory is garbage
-            return header, vehicles, pedestrians
+            return header, origin, vehicles, pedestrians
 
+        # Parse header
         try:
             header_str = data_arr[0].split(' ')
             header["tick_count"] = int(header_str[0])
@@ -102,8 +114,20 @@ class SimSharedMemoryClient(object):
             print("data_arr[0]: %s ", data_arr[0])
             print(e)
 
+        # Parse origin
         try:
-            for ri in range(1, header["n_vehicles"] + 1):
+            origin_str = data_arr[1].split(' ')
+            origin["origin_lat"] = float(origin_str[0])
+            origin["origin_lon"] = float(origin_str[1])
+            origin["origin_alt"] = float(origin_str[2])
+        except Exception as e:
+            print("Origin parsing exception")
+            print("data_arr[1]: %s ", data_arr[1])
+            print(e)
+
+        # Parse vehicles and pedestrians
+        try:
+            for ri in range(2, header["n_vehicles"] + 2):
                 vehicle = {}
                 id, type, x, y, z, vx, vy, yaw, str_angle = data_arr[ri].split()
                 vehicle["id"] = int(id)
@@ -121,7 +145,7 @@ class SimSharedMemoryClient(object):
             print(e)
 
         try:
-            for ri in range(header["n_vehicles"] + 1, header["n_vehicles"] + 1 + header["n_pedestrians"]):
+            for ri in range(header["n_vehicles"] + 2, header["n_vehicles"] + 2 + header["n_pedestrians"]):
                 pedestrian = {}
                 id, type, x, y, z, vx, vy, yaw = data_arr[ri].split()
                 pedestrian["id"] = int(id)
@@ -137,8 +161,56 @@ class SimSharedMemoryClient(object):
             print("PedestrianState parsing exception")
             print(e)
 
-        return header, vehicles, pedestrians
+        return header, origin, vehicles, pedestrians
 
+    def write_client_state(self, tick_count, delta_time, vehicles, pedestrians):
+        """ Writes to shared memory of the client pose data for each agent.
+            @param vehicles:      [{"id", "x", "y", "z", "vx", "vy", "active"}]
+            @param pedestrians:   [{"id", "x", "y", "z", "vx", "vy", "active"}]
+            Shared memory format (no origin, sim_time, type, yaw but extra active compared to server state):
+                tick_count delta_time n_vehicles n_pedestrians
+                vid x y z vx vy active
+                pid x y z vx vy active
+                ...
+        """
+        if not self.is_connected:
+            return
+
+        # write tick count, deltatime, numbers of vehicles and pedestrians
+        write_str = f"{int(tick_count)} {delta_time} {len(vehicles)} {len(pedestrians)}\n"
+        # write vehicle states, rounding the numerical data to reasonable significant figures
+        for vehicle in vehicles:
+            write_str += "{} {} {} {} {} {} {}\n".format(
+                vehicle["id"],
+                round(vehicle["x"], 4),
+                round(vehicle["y"], 4),
+                round(vehicle["z"], 4),
+                round(vehicle["vx"], 4),
+                round(vehicle["vy"], 4),
+                int(vehicle["active"])
+            )
+
+        # write pedestrian states, rounding the numerical data to reasonable significant figures
+        for pedestrian in pedestrians:
+            write_str += "{} {} {} {} {} {} {}\n".format(
+                pedestrian["id"],
+                round(pedestrian["x"], 4),
+                round(pedestrian["y"], 4),
+                round(pedestrian["z"], 4),
+                round(pedestrian["vx"], 4),
+                round(pedestrian["vy"], 4),
+                int(vehicle["active"])
+            )
+
+        # sysv_ipc.BusyError needs to be caught
+        try:
+            self.cs_sem.acquire(timeout=0)
+            self.cs_shm.write(write_str.encode('utf-8'))
+            self.cs_sem.release()
+        except sysv_ipc.BusyError:
+            print("server state semaphore locked...")
+            return
+        # log.info("Shared Memory write\n{}".format(write_str))
 
     def __del__(self):
         if self.is_connected:
