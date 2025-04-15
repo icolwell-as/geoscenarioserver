@@ -7,13 +7,15 @@
 # but requires more processing capabilities. Can't avoid drift if hardware is slow.
 # --------------------------------------------
 
-import datetime
-import time
-import math
 import csv
-from SimConfig import *
-from util.Utils import truncate
+import datetime
 import glog as log
+import math
+import time
+
+from requirements.RequirementViolationEvents import ScenarioTimeout
+from SimConfig  import *
+from util.Utils import truncate
 
 class TickSync():
 
@@ -90,11 +92,14 @@ class TickSync():
         self.tick_count+=1
         #stats
         self.update_stats()
+
         #Check timeout
         if (self.timeout):
             if (self.sim_time>=self.timeout):
-                log.info('{} TIMEOUT: {:.3}s'.format(self.label,self.sim_time))
+                ScenarioTimeout(self.timeout)
+                log.info('{} TIMEOUT: {:.3}s'.format(self.label, self.sim_time))
                 return False
+                
         return True
     
     def update_stats(self):
@@ -109,11 +114,11 @@ class TickSync():
             log.info('{:05.2f}s {} Tick {:3}# +{:.3f} e{:.3f} d{:.3f} '.
                     format(self.sim_time,self.label,self.tick_count, self.delta_time, self.expected_tick_duration, self.drift))
         
-    def write_peformance_log(self):
+    def write_performance_log(self):
         if LOG_PERFORMANCE:
             logtime = time.strftime("%Y%m%d-%H%M%S")
-            filename = "log/{}_performance_log.csv".format(self.label)
-            log.info('Writting performance log: {}'.format(filename))
+            filename = f"outputs/{self.label}_performance_log.csv"
+            log.info('Writing performance log: {}'.format(filename))
             with open(filename,mode='w') as csv_file:
                 csv_writer = csv.writer(csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
                 titleline =['tickcount', 'sim_time','delta_time', 'drift']

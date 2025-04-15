@@ -153,7 +153,9 @@ void AGSClient::ReadServerState(float deltaTime)
 	float server_delta_time;
 	int server_tick_count, nvehicles{0}, npedestrians{0}, vid{0}, pid{0};
 	iss >> server_tick_count >> server_simulation_time >> server_delta_time >> nvehicles >> npedestrians;
-
+	// parse origin
+	float origin_lat, origin_lon, origin_alt;
+	iss >> origin_lat >> origin_lon >> origin_alt;
 	// parse vehicles
 	int vehicles_read{0};
 	while (vehicles_read < nvehicles)
@@ -171,12 +173,11 @@ void AGSClient::ReadServerState(float deltaTime)
 		z *= 100.0f;
 		x_vel *= 100.0f;
 		y_vel *= -100.0f;
-		// Unreal uses degrees instead of radians
+		// Convert from radians to degrees for Unreal
 		yaw = yaw * 180.0f / M_PI;
 
-		// Unreal's y axis is inverted from GS server's.
-		yaw -= 90;
-		// GEngine->AddOnScreenDebugMessage(-1, 0, FColor::Red, FString::Printf(TEXT("Yaw %f"), yaw));
+		// Server yaw is counterclockwise, Unreal is clockwise
+		yaw = 360 - yaw;
 
 		FVector loc = {x, y, z};
 		FRotator rot = {0.0f, yaw, 0.0f};

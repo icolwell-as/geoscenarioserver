@@ -5,56 +5,28 @@
 # SIMULATED VEHICLES
 # --------------------------------------------
 
-from os import stat_result
-from matplotlib import pyplot as plt
-import math
-import sys
+import datetime
 import glog as log
+import math
 import numpy as np
-from TickSync import TickSync
+import sys
+
+from matplotlib import pyplot as plt
+from os import stat_result
+from typing import List
+
+from Actor import *
+from gsc.GSParser import Node
+from lanelet2.routing import Route
+from mapping.LaneletMap import LaneletMap
+from requirements.RequirementViolationEvents import ScenarioCompletion
+from shm.SimSharedMemoryServer import *
 from SimConfig import *
-from util.Transformations import frenet_to_sim_frame, sim_to_frenet_frame, OutsideRefPathException
-from util.Utils import *
 from sv.SDVPlanner import *
 from sv.SDVRoute import SDVRoute
-from Actor import *
-from mapping.LaneletMap import LaneletMap
-from shm.SimSharedMemoryServer import *
+from sv.VehicleBase import Vehicle
+from util.Transformations import frenet_to_sim_frame, sim_to_frenet_frame, OutsideRefPathException
 from util.Utils import kalman
-from typing import List
-from lanelet2.routing import Route
-from gsc.GSParser import Node
-
-import datetime
-
-# Vehicle base class for remote control or simulation.
-class Vehicle(Actor):
-    #vehicle types
-    N_TYPE = 0      #neutral
-    SDV_TYPE = 1
-    EV_TYPE = 2
-    TV_TYPE = 3
-    PV_TYPE = 4
-
-    def __init__(self, id, name='', start_state=[0.0,0.0,0.0, 0.0,0.0,0.0], frenet_state=[0.0,0.0,0.0, 0.0,0.0,0.0], yaw=0.0):
-        super().__init__(id, name, start_state, frenet_state, yaw, VehicleState())
-        self.type = Vehicle.N_TYPE
-        self.radius = VEHICLE_RADIUS
-        self.model = ''
-
-
-    def update_sim_state(self, new_state, delta_time):
-        # NOTE: this may desync the sim and frenet vehicle state, so this should
-        # only be done for external vehicles (which don't have a frenet state)
-        if self.type is not Vehicle.EV_TYPE:
-            log.warn("Cannot update sim state for gs vehicles directly.")
-
-
-    def get_sim_state(self):
-        position = [self.state.x, self.state.y, 0.0]
-        velocity = [self.state.x_vel, self.state.y_vel]
-        return self.id, self.type, position, velocity, self.state.yaw, self.state.steer
-
 
 class SDV(Vehicle):
     ''''
@@ -63,9 +35,11 @@ class SDV(Vehicle):
     def __init__(
             self, vid:int, name:str, root_btree_name:str, start_state:List[float],
             yaw:float, lanelet_map:LaneletMap, route_nodes:List[Node],
-            start_state_in_frenet:bool=False, btree_locations:List[str]=[], btype:str=""):
+            start_state_in_frenet:bool=False, btree_locations:List[str]=[], btype:str="",
+            goal_ends_simulation:bool=False, rule_engine_port:int=None):
         self.btype = btype
         self.btree_locations = btree_locations
+        self.goal_ends_simulation    = goal_ends_simulation
         self.route_nodes = route_nodes
 
         if start_state_in_frenet:
@@ -91,6 +65,7 @@ class SDV(Vehicle):
 
         #Planning
         self.sv_planner = None
+        self.rule_engine_port = rule_engine_port
 
         #Behavior
         self.root_btree_name = root_btree_name
@@ -107,14 +82,17 @@ class SDV(Vehicle):
         """For SDV models controlled by SVPlanner.
             If a planner is started, the vehicle can't be a remote.
         """
-        self.sv_planner = SVPlanner(self, self.sim_traffic, self.btree_locations, self.route_nodes)
+        self.sv_planner = SVPlanner(self, self.sim_traffic, self.btree_locations, self.route_nodes, self.goal_ends_simulation, self.rule_engine_port)
         self.sv_planner.start()
 
-    def stop(self):
+    def stop(self, interrupted = False):
         if self.sv_planner:
-            self.sv_planner.stop()
+            self.sv_planner.stop(interrupted)
 
     def tick(self, tick_count:int, delta_time:float, sim_time:float):
+        if self.goal_ends_simulation and self.sv_planner.completion.value:
+            raise ScenarioCompletion("Vehicle under test reached its target")
+
         Vehicle.tick(self, tick_count, delta_time, sim_time)
         #Read planner
         if self.sv_planner:
@@ -327,7 +305,7 @@ class TV(Vehicle):
             #starts as inactive until trajectory begins
             self.sim_state = ActorSimState.INACTIVE
             self.state.set_X([9999, 0, 0])
-            self.state.set_Y([9999,0,0])
+            self.state.set_Y([9999, 0, 0])
 
     def tick(self, tick_count, delta_time, sim_time):
         Vehicle.tick(self, tick_count, delta_time, sim_time)
@@ -349,7 +327,7 @@ class PV(Vehicle):
     """
     def __init__(self, vid, name, start_state, frenet_state, yaw, path, debug_shdata, keep_active = True):
         super().__init__(vid, name, start_state, frenet_state, yaw=yaw)
-        self.type = Vehicle.TV_TYPE
+        self.type = Vehicle.PV_TYPE
         self.path = path
         self._debug_shdata = debug_shdata
         self.keep_active = keep_active

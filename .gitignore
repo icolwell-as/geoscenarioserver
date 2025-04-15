@@ -1,9 +1,13 @@
-catkin_ws
-.venv
-scenarios/plots/*
-scenarios/logs/*
+*.DS_Store
 *__pycache__/
 **/build/
+.venv
 .vscode/
-*.DS_Store
-test_btree_parser
+outputs/*.json
+outputs/*.png
+outputs/*.csv
+colcon_ws/
+
+# pixi environments
+.pixi/
+*.egg-info
