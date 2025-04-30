@@ -77,18 +77,20 @@ def start_server(args):
         return
 
     sync_global = TickSync(rate=sim_config.traffic_rate, realtime=True, block=True, verbose=False, label="traffic")
-    sync_global.set_timeout(sim_config.timeout)
 
-    #find screen info 
+    if not args.indefinite:
+        sync_global.set_timeout(sim_config.timeout)
+
+    #find screen info
     monitors = screeninfo.get_monitors()
     primary_monitor = None
     for monitor in monitors:
         if monitor.is_primary:
             primary_monitor = monitor
             break
-    
+
     screen_param = [primary_monitor.x, primary_monitor.y, primary_monitor.width, primary_monitor.height]
-    
+
     if args.dash_pos:
         screen_param = args.dash_pos
 
@@ -100,10 +102,10 @@ def start_server(args):
             def on_enter(key):
                 if key == keyboard.Key.enter:
                     start_window.after(0, start_window.quit())
-            
+
             pos_x = screen_param[0]
             pos_y = screen_param[1]
-            
+
             start_window = tk.Tk()
             set_width = 300
             set_height = 200
@@ -115,7 +117,7 @@ def start_server(args):
             else:
                 pos_x += (screen_param[2] - set_width) // 2
                 pos_y += (screen_param[3] - set_height) // 2
-            
+
             # Apply position
             start_window.geometry(f"{set_width}x{set_height}+{int(pos_x)}+{int(pos_y)}")
 
@@ -197,6 +199,7 @@ if __name__ == "__main__":
     parser.add_argument("-wi", "--wait-for-input", dest="wait_for_input", action="store_true", help="Wait for the user to press [ENTER] to start the simulation")
     parser.add_argument("-wc", "--wait-for-client", dest="wait_for_client", action="store_true", help="Wait for a valid client state to start the simulation")
     parser.add_argument("--dash-pos", default=[], dest="dash_pos", type=float, nargs=4, help="Set the position of the dashboard window (x y width height)")
+    parser.add_argument("-i", "--indefinite", dest="indefinite", action="store_true", help="Run the simulation indefinitely")
 
     args = parser.parse_args()
     start_server(args)

@@ -163,10 +163,10 @@ class SVPlanner(object):
 
                 # Must be after requirementChecker.analyze, since we are not yet sure if the next tick is required
                 AgentTick(traffic_state.vid)
-                
+
                 #BTree Tick - using frenet state and lane config based on old ref path
                 mconfig, ref_path_changed, snapshot_tree = self.behavior_layer.tick(traffic_state)
-                
+
                 # when ref path changes, must recalculate the path, lane config and relative state of other vehicles
                 if ref_path_changed:
                     log.info("PATH CHANGED")
@@ -263,7 +263,7 @@ class SVPlanner(object):
                         [traj.array_format() for traj in cand if not traj.feasible] if cand else None,
                         traj_s_shift
                     )
-                    
+
         except ScenarioCompletion as e:
             with self.completion.get_lock():
                 self.completion.value = True
@@ -275,7 +275,7 @@ class SVPlanner(object):
             ScenarioEnd()
 
         log.info('PLANNER PROCESS END. Vehicle{}'.format(self.vid))
-        
+
         #record the log after ending planner process
         if self.sync_planner:
             self.sync_planner.write_performance_log()

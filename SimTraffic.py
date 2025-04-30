@@ -395,4 +395,3 @@ class SimTraffic(object):
         static_objects = copy(self.static_objects)
 
         return header, vehicles, pedestrians, traffic_light_states, static_objects
-    

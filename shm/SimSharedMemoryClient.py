@@ -181,7 +181,7 @@ class SimSharedMemoryClient(object):
         # write vehicle states, rounding the numerical data to reasonable significant figures
         for vehicle in vehicles:
             write_str += "{} {} {} {} {} {} {}\n".format(
-                vehicle["id"], 
+                vehicle["id"],
                 round(vehicle["x"], 4),
                 round(vehicle["y"], 4),
                 round(vehicle["z"], 4),
@@ -193,7 +193,7 @@ class SimSharedMemoryClient(object):
         # write pedestrian states, rounding the numerical data to reasonable significant figures
         for pedestrian in pedestrians:
             write_str += "{} {} {} {} {} {} {}\n".format(
-                pedestrian["id"], 
+                pedestrian["id"],
                 round(pedestrian["x"], 4),
                 round(pedestrian["y"], 4),
                 round(pedestrian["z"], 4),

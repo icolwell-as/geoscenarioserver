@@ -89,7 +89,7 @@ class SDV(Vehicle):
     def tick(self, tick_count:int, delta_time:float, sim_time:float):
         if self.goal_ends_simulation and self.sv_planner.completion.value:
             raise ScenarioCompletion("Vehicle under test reached its target")
-            
+
         Vehicle.tick(self, tick_count, delta_time, sim_time)
         #Read planner
         if self.sv_planner:

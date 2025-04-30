@@ -88,7 +88,7 @@ for scenario in $all_scenarios; do
     if [[ -f "${regression_folder}violations.json" ]]; then
         echo ""
         echo "=== diff violations.json for \"$(basename ${scenario})\" ==="
-        diff <(jq --sort-keys . ${REPO_DIR}/outputs/violations.json) <(jq --sort-keys . ${regression_folder}violations.json) 
+        diff <(jq --sort-keys . ${REPO_DIR}/outputs/violations.json) <(jq --sort-keys . ${regression_folder}violations.json)
         if [[ $? -gt 0 ]]; then
             ((regression_failures++))
             save="yes"
