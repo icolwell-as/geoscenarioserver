@@ -6,7 +6,6 @@
 # --------------------------------------------
 
 from copy import copy
-import glog as log
 from multiprocessing import Array, Process, Value
 from signal import signal, SIGTERM, SIGINT
 import sys
@@ -17,15 +16,19 @@ from mapping.LaneletMap import LaneletMap
 from requirements.RequirementsChecker import RequirementsChecker
 from requirements.RequirementViolationEvents import AgentTick, ScenarioCompletion, ScenarioInterrupted, ScenarioEnd
 from SimTraffic import *
-from sv.FrenetTrajectory import *
-from sv.ManeuverConfig import *
-from sv.ManeuverModels import plan_maneuver
+from sv.maneuvers.FrenetTrajectory import *
+from sv.maneuvers.Config import *
+from sv.maneuvers.Models import plan_maneuver
 from sv.SDVTrafficState import *
 from sv.SDVRoute import SDVRoute
 from TickSync import TickSync
+from util.BoundingBoxes import calculate_rectangular_bounding_box
 
-import sv.btree.BehaviorLayer       as btree
-import sv.ruleEngine.BehaviorLayer  as rules
+import sv.planners.btree.BehaviorLayer       as btree
+import sv.planners.ruleEngine.BehaviorLayer  as rules
+
+import logging
+log = logging.getLogger(__name__)
 
 class SVPlanner(object):
     def __init__(self, sdv, sim_traffic, btree_locations, route_nodes, goal_ends_simulation = False, rule_engine_port = None):
@@ -138,6 +141,7 @@ class SVPlanner(object):
                 tick_count = header[0]
                 if self.vid in traffic_vehicles:
                     self.sdv.state = traffic_vehicles.pop(self.vid, None).state #removes self state
+                    self.sdv.bounding_box = calculate_rectangular_bounding_box(self.sdv)
                 else:
                     #vehicle state not available. Vehicle can be inactive.
                     continue
@@ -156,7 +160,7 @@ class SVPlanner(object):
                 traffic_state = get_traffic_state(self.sync_planner, self.sdv, self.laneletmap, self.sdv_route, traffic_vehicles, traffic_pedestrians, traffic_light_states, static_objects)
 
                 if not traffic_state:
-                    log.warn("Invalid planner state, skipping planning step...")
+                    log.warning("Invalid planner state, skipping planning step...")
                     continue
 
                 self._requirementsChecker.analyze(traffic_state)
@@ -176,7 +180,7 @@ class SVPlanner(object):
                     # Regenerate planner state and tick btree again. Discard whether ref path changed again.
                     traffic_state = get_traffic_state(self.sync_planner, self.sdv, self.laneletmap, self.sdv_route, traffic_vehicles, traffic_pedestrians, traffic_light_states, static_objects)
                     if not traffic_state:
-                        log.warn("Invalid planner state, skipping planning step...")
+                        log.warning("Invalid planner state, skipping planning step...")
                         continue
 
                     mconfig, _, snapshot_tree = self.behavior_layer.tick(traffic_state)
@@ -210,7 +214,7 @@ class SVPlanner(object):
                             self.sdv.state.s - tvehicle.state.s - self.sdv.radius - tvehicle.radius,
                             self.sdv.state.s_vel - tvehicle.state.s_vel
                         )
-                    #log.info(state_str)
+                    log.debug(state_str)
                 self.mconfig = mconfig
 
                 #Maneuver Tick
@@ -226,7 +230,7 @@ class SVPlanner(object):
                         task_delta_time = self.sync_planner.get_task_time()
 
                     if frenet_traj is None:
-                        log.warn("VID {} plan_maneuver return invalid trajectory.".format(self.vid))
+                        log.warning("VID {} plan_maneuver return invalid trajectory.".format(self.vid))
                         pass
                     else:
                         plan = MotionPlan()

@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 from util.Utils import to_equation, differentiate
 from SimConfig import *
-import numpy as np
-import glog as log
+import logging
+log = logging.getLogger(__name__)
 
 class Actor(object):
     def __init__(self, id, name='', start_state=[0.0,0.0,0.0, 0.0,0.0,0.0], frenet_state=[0.0,0.0,0.0, 0.0,0.0,0.0], yaw=0.0, state=None, length=0.0, width=0.0):
@@ -27,21 +27,38 @@ class Actor(object):
         #state
         #start state in sim frame
         self.state:ActorState = state or ActorState()
-        self.state.x = start_state[0]
+        self.state.x     = start_state[0]
         self.state.x_vel = start_state[1]
         self.state.x_acc = start_state[2]
-        self.state.y = start_state[3]
+        self.state.y     = start_state[3]
         self.state.y_vel = start_state[4]
         self.state.y_acc = start_state[5]
         # start state in frenet
-        self.state.s = frenet_state[0]
+        self.state.s     = frenet_state[0]
         self.state.s_vel = frenet_state[1]
         self.state.s_acc = frenet_state[2]
-        self.state.d = frenet_state[3]
+        self.state.d     = frenet_state[3]
         self.state.d_vel = frenet_state[4]
         self.state.d_acc = frenet_state[5]
 
         self.state.yaw = yaw
+
+    def future_euclidian_state(self, dt):
+        """ Predicts a new state based on time and vel.
+            Used for collision prediction and charts
+            Note: Acc can rapidly change. Using the current acc to predict future
+            can lead to overshooting forward or backwards when vehicle is breaking
+            TODO: predict using history + kalman filter
+        """
+        state = [
+            self.state.x + (self.state.x_vel * dt),
+            self.state.x_vel,
+            self.state.x_acc,
+            self.state.y + (self.state.y_vel * dt),
+            self.state.y_vel,
+            self.state.y_acc
+        ]
+        return state
 
     def future_state(self, dt):
         """ Predicts a new state based on time and vel.
@@ -71,7 +88,7 @@ class Actor(object):
 
     def remove(self):
         self.sim_state = ActorSimState.INACTIVE
-        log.warn("Actor id {} is now INACTIVE".format(self.id))
+        log.warning("Actor id {} is now INACTIVE".format(self.id))
 
     def tick(self, tick_count, delta_time, sim_time):
         pass
@@ -84,15 +101,15 @@ class Actor(object):
             if start_time <= sim_time <= end_time:
                 #Trajectory starts
                 if self.sim_state is ActorSimState.INACTIVE:
-                    log.warn("Actor ID {} is now ACTIVE".format(self.id))
+                    log.warning(f"Actor ID {self.id} is now ACTIVE")
                     self.sim_state = ActorSimState.ACTIVE
                     if self.ghost_mode:
                         self.sim_state = ActorSimState.INVISIBLE
-                        log.warn("vid {} is now INVISIBLE".format(self.id))
+                        log.warning(f"vid {self.id} is now INVISIBLE")
                     if EVALUATION_MODE:
                         if -self.id in self.sim_traffic.vehicles:
                             self.sim_traffic.vehicles[-self.id].sim_state = ActorSimState.ACTIVE
-                            log.warn("vid {} is now ACTIVE".format(-self.id))
+                            log.warning(f"vid {-self.id} is now ACTIVE")
 
                 #find closest pair of nodes
                 for i in range(len(trajectory)-1):

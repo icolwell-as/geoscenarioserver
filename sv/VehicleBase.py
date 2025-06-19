@@ -2,6 +2,9 @@ import glog as log
 from Actor import Actor, VehicleState
 from SimConfig import *
 
+import logging
+log = logging.getLogger(__name__)
+
 # Vehicle base class for remote control or simulation.
 class Vehicle(Actor):
     #vehicle types
@@ -21,10 +24,11 @@ class Vehicle(Actor):
         # NOTE: this may desync the sim and frenet vehicle state, so this should
         # only be done for external vehicles (which don't have a frenet state)
         if self.type is not Vehicle.EV_TYPE:
-            log.warn("Cannot update sim state for gs vehicles directly.")
+            log.warning("Cannot update sim state for gs vehicles directly.")
 
 
     def get_sim_state(self):
+        dimensions = [self.length, self.width, 0.0]
         position = [self.state.x, self.state.y, 0.0]
         velocity = [self.state.x_vel, self.state.y_vel]
-        return self.id, self.type, position, velocity, self.state.yaw, self.state.steer
+        return self.id, self.type, dimensions, position, velocity, self.state.yaw, self.state.steer
