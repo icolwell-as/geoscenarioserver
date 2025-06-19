@@ -36,7 +36,7 @@ Tested on native Ubuntu 20.04, 22.04, 24.04 and within Windows 10/11 WSL2 (See `
 
 #### Ubuntu native or Windows WSL2 installation
 
-To automatically install the dependencies, execute
+To automatically install the dependencies for linux native, execute
 
 ```
 bash scripts/install_dependencies.bash
@@ -104,7 +104,7 @@ Usage:
 - run `python3 GSServer.py -s scenarios/<geoscenario_file>` to start the Server.
 
 ```
-usage: GSServer.py [-h] [-s [FILE ...]] [--verify_map FILE] [-q VERBOSE] [-n] [-m MAP_PATH] [-b BTREE_LOCATIONS] [-wi] [-wc] [--dash-pos DASH_POS DASH_POS DASH_POS DASH_POS] [-d] [-fl]
+usage: GSServer.py [-h] [-s [FILE ...]] [--verify_map FILE] [-q VERBOSE] [-n] [-m MAP_PATH] [-b BTREE_LOCATIONS] [-wi] [-wc] [--dash-pos DASH_POS DASH_POS DASH_POS DASH_POS] [-d] [-fl] [-i]
 
 options:
   -h, --help            show this help message and exit
@@ -126,6 +126,7 @@ options:
                         Set the position of the dashboard window (x y width height)
   -d, --debug           Set the logging level to DEBUG instead of INFO
   -fl, --file-log       Log to $GSS_OUTPUTS/GSServer.log instead of stdout
+  -i, --indefinite      Keep the simulation running past the timeout
 ```
 
 GSServer creates various files on the folder `./outputs`, which can also be overridden using the environment variable `GSS_OUTPUTS`.

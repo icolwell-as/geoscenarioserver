@@ -37,7 +37,7 @@ class Dashboard(object):
     CART_FIG_ID = 2
     FRE_FIG_ID = 3
     TRAJ_FIG_ID = 4
-    
+
     maneuver_map = {"M_VELKEEP":"VelKeep", "M_FOLLOW":"Follow", "M_LANESWERVE":"LaneSwerve", "M_CUTIN":"CutIn", "M_STOP":"Stop", "M_REVERSE":"Reverse"}
     vehicle_types = {0:"N", 1:"SDV", 2:"EV", 3:"TV", 4:"PV"}
     ped_types = {0:"N", 1:"TP", 2:"PP", 3:"EP", 4:"SP"}
@@ -50,7 +50,7 @@ class Dashboard(object):
         self.center_pedestrian = False
         self.lanelet_map:LaneletMap = None
         self.screen_param = screen_param
-        
+
 
     def start(self):
         """ Start the dashboard in a subprocess when sim_config.show_dashboard=True
@@ -160,7 +160,7 @@ class Dashboard(object):
         if (focus):
             self.center_id = focus #sets center_id to an int or string
             #log.info("Changed focus to {}".format(self.center_id))
-    
+
     def get_maneuver(self, id):
         try:
             if id in self.sim_traffic.debug_shdata:
@@ -749,7 +749,7 @@ class Dashboard(object):
         x, y, w, h = self.screen_param[0], self.screen_param[1], self.screen_param[2], self.screen_param[3]
 
         window.geometry("%dx%d+%d+%d" % (w, h, x, y))
-        
+
         vis_scaling = 1
         txt_scaling = 1
 
@@ -759,7 +759,7 @@ class Dashboard(object):
         elif h >= 1080 and w >= 1920:
             vis_scaling = 2
             txt_scaling = 1.2
-    
+
         # Configure row and column weights for dynamic resizing
         window.columnconfigure(0, weight=1)  # Left section (70% width)
         window.columnconfigure(1, weight=1)  # Right section (30% width)
@@ -879,7 +879,7 @@ class Dashboard(object):
         fig_traj.set_size_inches(2*vis_scaling,2*vis_scaling,forward=True) # needs to be scaled
         self.traj_canvas = FigureCanvasTkAgg(fig_traj, traj_frame)
         self.traj_canvas.get_tk_widget().pack(expand=True, fill="both")
-        
+
         tree_msg = tk.Text(bt_frame, height=int(65*txt_scaling), width=int(60*txt_scaling), spacing2=1, bg="white", fg="black", wrap="word", font=("TkDefaultFont", int(12*txt_scaling)))
         self.tree_msg = tree_msg
         tree_msg.grid(row=0,column=0, sticky='nsew')
@@ -893,5 +893,5 @@ class Dashboard(object):
         matplotlib.rc('ytick', labelsize=6*vis_scaling)
         matplotlib.rc('legend', fontsize=8*vis_scaling)
         matplotlib.rc('figure', titlesize=8*vis_scaling)
-        
+
         return window

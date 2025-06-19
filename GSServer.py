@@ -79,12 +79,14 @@ def start_server(args):
         return
 
     sync_global = TickSync(rate=sim_config.traffic_rate, realtime=True, block=True, verbose=False, label="traffic")
-    sync_global.set_timeout(sim_config.timeout)
+
+    if not args.indefinite:
+        sync_global.set_timeout(sim_config.timeout)
 
     if args.dash_pos:
         screen_param = args.dash_pos
     else:
-        #find screen info 
+        #find screen info
         monitors = screeninfo.get_monitors()
         # ensure we do have a monitor, even if it is not primary (on Windows WSL2)
         primary_monitor = monitors[0]
@@ -102,10 +104,10 @@ def start_server(args):
             def on_enter(key):
                 if key == keyboard.Key.enter:
                     start_window.after(0, start_window.quit())
-            
+
             pos_x = screen_param[0]
             pos_y = screen_param[1]
-            
+
             start_window = tk.Tk()
             set_width = 300
             set_height = 200
@@ -117,7 +119,7 @@ def start_server(args):
             else:
                 pos_x += (screen_param[2] - set_width) // 2
                 pos_y += (screen_param[3] - set_height) // 2
-            
+
             # Apply position
             start_window.geometry(f"{set_width}x{set_height}+{int(pos_x)}+{int(pos_y)}")
 
@@ -198,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("-dp", "--dash-pos", default=[], dest="dash_pos", type=float, nargs=4, help="Set the position of the dashboard window (x y width height)")
     parser.add_argument("-d", "--debug", dest="debug", action="store_true", help="Set the logging level to DEBUG instead of INFO")
     parser.add_argument("-fl", "--file-log", dest="file_log", action="store_true", help="Log to $GSS_OUTPUTS/GSServer.log instead of stdout")
+    parser.add_argument("-i", "--indefinite", dest="indefinite", action="store_true", help="Run the simulation indefinitely")
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.debug else logging.INFO

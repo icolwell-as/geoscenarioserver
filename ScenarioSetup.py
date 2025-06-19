@@ -243,7 +243,6 @@ def load_geoscenario_from_file(gsfiles, sim_traffic:SimTraffic, sim_config:SimCo
                             length=length, width=width)
                 sim_traffic.add_vehicle(vehicle)
                 log.info("Vehicle {} initialized with TV behavior".format(vid))
-
             except Exception as e:
                 log.error("Failed to initialize vehicle {}".format(vid))
                 raise e
