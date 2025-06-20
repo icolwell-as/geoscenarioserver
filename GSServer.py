@@ -6,7 +6,6 @@
 # Starts the Server and controls the traffic simulation loop
 # --------------------------------------------
 
-import glog as log
 import screeninfo
 
 from argparse import ArgumentParser
@@ -27,6 +26,9 @@ from SimConfig import SimConfig
 from SimTraffic import SimTraffic
 from TickSync import TickSync
 
+import logging
+log = logging.getLogger("GSServer")
+
 def start_server(args):
     # log.setLevel("INFO")
     log.info('GeoScenario server START')
@@ -40,7 +42,7 @@ def start_server(args):
         btree_locations.append(base_btree_location)
     else:
         btree_locations = [base_btree_location]
-    log.info ("Btree search locations set (in order) as: " + str(btree_locations))
+    log.info("Btree search locations set (in order) as: " + str(btree_locations))
 
     if args.verify_map != "":
         verify_map_file(args.verify_map, lanelet_map)
@@ -81,18 +83,18 @@ def start_server(args):
     if not args.indefinite:
         sync_global.set_timeout(sim_config.timeout)
 
-    #find screen info
-    monitors = screeninfo.get_monitors()
-    primary_monitor = None
-    for monitor in monitors:
-        if monitor.is_primary:
-            primary_monitor = monitor
-            break
-
-    screen_param = [primary_monitor.x, primary_monitor.y, primary_monitor.width, primary_monitor.height]
-
     if args.dash_pos:
         screen_param = args.dash_pos
+    else:
+        #find screen info
+        monitors = screeninfo.get_monitors()
+        # ensure we do have a monitor, even if it is not primary (on Windows WSL2)
+        primary_monitor = monitors[0]
+        for monitor in monitors:
+            if monitor.is_primary:
+                primary_monitor = monitor
+                break
+        screen_param = [primary_monitor.x, primary_monitor.y, primary_monitor.width, primary_monitor.height]
 
     if sim_config.wait_for_input:
         if not sim_config.show_dashboard:
@@ -140,12 +142,9 @@ def start_server(args):
     traffic.start()
 
     #GUI / Debug screen
-    dashboard = Dashboard(traffic, sim_config, screen_param)
-
     if sim_config.show_dashboard:
+        dashboard = Dashboard(traffic, sim_config, screen_param)
         dashboard.start()
-    else:
-        log.warn("Dashboard will not start")
 
     dashboard_interrupted = False
     while sync_global.tick():
@@ -189,7 +188,7 @@ def verify_map_file(map_file, lanelet_map:LaneletMap):
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
+    parser = ArgumentParser(description="Starts the GeoScenario Server simulation", allow_abbrev=True)
     parser.add_argument("-s", "--scenario", dest="gsfiles", nargs='*', metavar="FILE", default="", help="GeoScenario file. If no file is provided, the GSServer will load a scenario from code")
     parser.add_argument("--verify_map", dest="verify_map", metavar="FILE", default="", help="Lanelet map file")
     parser.add_argument("-q", "--quiet", dest="verbose", default=True, help="don't print messages to stdout")
@@ -198,8 +197,18 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--btree-locations", dest="btree_locations", default="", help="Add higher priority locations to search for btrees by agent btypes")
     parser.add_argument("-wi", "--wait-for-input", dest="wait_for_input", action="store_true", help="Wait for the user to press [ENTER] to start the simulation")
     parser.add_argument("-wc", "--wait-for-client", dest="wait_for_client", action="store_true", help="Wait for a valid client state to start the simulation")
-    parser.add_argument("--dash-pos", default=[], dest="dash_pos", type=float, nargs=4, help="Set the position of the dashboard window (x y width height)")
+    parser.add_argument("-dp", "--dash-pos", default=[], dest="dash_pos", type=float, nargs=4, help="Set the position of the dashboard window (x y width height)")
+    parser.add_argument("-d", "--debug", dest="debug", action="store_true", help="Set the logging level to DEBUG instead of INFO")
+    parser.add_argument("-fl", "--file-log", dest="file_log", action="store_true", help="Log to $GSS_OUTPUTS/GSServer.log instead of stdout")
     parser.add_argument("-i", "--indefinite", dest="indefinite", action="store_true", help="Run the simulation indefinitely")
-
     args = parser.parse_args()
+
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    if args.file_log:
+        filename = os.path.join(
+            os.getenv("GSS_OUTPUTS", os.path.join(os.getcwd(), "outputs")),
+            "GSServer.log")
+        logging.basicConfig(filename=filename, filemode="w", level=log_level)
+    else:
+        logging.basicConfig(level=log_level)
     start_server(args)

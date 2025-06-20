@@ -1,4 +1,4 @@
-# Generated from sv/btree/parser/BTreeDSL.g4 by ANTLR 4.13.2
+# Generated from sv/planners/btree/parser/BTreeDSL.g4 by ANTLR 4.13.2
 # encoding: utf-8
 from antlr4 import *
 from io import StringIO
@@ -83,13 +83,13 @@ class BTreeDSLParser ( Parser ):
 
     sharedContextCache = PredictionContextCache()
 
-    literalNames = [ "<INVALID>", "'behaviortree'", "':'", "'condition'", 
-                     "'('", "')'", "'maneuver'", "'subtree'", "','", "<INVALID>", 
+    literalNames = [ "<INVALID>", "'behaviortree'", "':'", "'condition'",
+                     "'('", "')'", "'maneuver'", "'subtree'", "','", "<INVALID>",
                      "<INVALID>", "'='" ]
 
-    symbolicNames = [ "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
-                      "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
-                      "<INVALID>", "OPERATOR", "BOP", "ATT", "FLOAT", "WORD", 
+    symbolicNames = [ "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
+                      "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
+                      "<INVALID>", "OPERATOR", "BOP", "ATT", "FLOAT", "WORD",
                       "WS", "NL", "INDENT", "DEDENT" ]
 
     RULE_behaviorTree = 0
@@ -111,9 +111,9 @@ class BTreeDSLParser ( Parser ):
     RULE_tupl = 16
     RULE_name = 17
 
-    ruleNames =  [ "behaviorTree", "rootNode", "node", "nodeComposition", 
-                   "leafNode", "condition", "maneuver", "subtree", "midconf", 
-                   "mconfig", "cconfig", "mid", "params", "bexpr", "value", 
+    ruleNames =  [ "behaviorTree", "rootNode", "node", "nodeComposition",
+                   "leafNode", "condition", "maneuver", "subtree", "midconf",
+                   "mconfig", "cconfig", "mid", "params", "bexpr", "value",
                    "func", "tupl", "name" ]
 
     EOF = Token.EOF
@@ -207,7 +207,7 @@ class BTreeDSLParser ( Parser ):
         self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 47 
+            self.state = 47
             self._errHandler.sync(self)
             _la = self._input.LA(1)
             while True:
@@ -237,7 +237,7 @@ class BTreeDSLParser ( Parser ):
                     self.match(BTreeDSLParser.DEDENT)
 
 
-                self.state = 49 
+                self.state = 49
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
                 if not (_la==1):
@@ -415,13 +415,13 @@ class BTreeDSLParser ( Parser ):
 
             self.state = 63
             self.match(BTreeDSLParser.INDENT)
-            self.state = 65 
+            self.state = 65
             self._errHandler.sync(self)
             _la = self._input.LA(1)
             while True:
                 self.state = 64
                 self.node()
-                self.state = 67 
+                self.state = 67
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
                 if not ((((_la) & ~0x3f) == 0 and ((1 << _la) & 712) != 0)):
@@ -1297,7 +1297,7 @@ class BTreeDSLParser ( Parser ):
             while _alt!=2 and _alt!=ATN.INVALID_ALT_NUMBER:
                 if _alt==1:
                     self.state = 179
-                    self.match(BTreeDSLParser.WS) 
+                    self.match(BTreeDSLParser.WS)
                 self.state = 184
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,16,self._ctx)
