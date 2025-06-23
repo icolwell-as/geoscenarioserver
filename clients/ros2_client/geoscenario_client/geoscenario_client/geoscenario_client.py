@@ -18,7 +18,7 @@ class GSClient(Node):
 
     def initialize_state(self):
         # poll frequently at the beginning
-        self.short_timer_period = 0.005  # 5 miliseconds
+        self.short_timer_period = 0.02  # 20 milliseconds (2x the default geoscenario update frequency)
         self.previous_tick_count = 0
         # remember that the connection was established to be able to detect that it was lost when the server shut down
         self.previously_connected = False
@@ -45,8 +45,6 @@ class GSClient(Node):
             self.previously_connected = True
 
         tick_count = header["tick_count"]
-        # update the timer with the current server frequency
-        self.timer.timer_period_ns = header["delta_time"] * 1e9 # convert seconds to nanoseconds
 
         # ensure nothing is skipped
         if tick_count > self.previous_tick_count + 1:
